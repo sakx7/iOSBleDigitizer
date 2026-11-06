@@ -106,6 +106,19 @@ HID_INFO = bytes([0x11, 0x01, 0x00, 0x01])  # bcdHID 1.11, country 0, flags Remo
 OBJ_BASE = "/com/digitizer"
 
 
+def read_slice(value, options: dict) -> dbus.Array:
+    """Serve a GATT read from the requested offset.
+
+    BlueZ forwards each ATT Read Blob as ReadValue with an "offset" option
+    and returns the reply unchanged, so values longer than one ATT packet
+    (the 511-byte report map, the input report) must be sliced here. Without
+    this, a small-MTU link reads the start of the value again for every
+    chunk and the host ends up with a corrupt report map.
+    """
+    offset = int(options.get("offset", 0))
+    return dbus.Array(bytes(value)[offset:], signature="y")
+
+
 # ---------------------------------------------------------------------------
 # D-Bus GATT objects
 # ---------------------------------------------------------------------------
@@ -276,7 +289,7 @@ class HidInfoCharacteristic(Characteristic):
     @dbus.service.method(GATT_CHRC_IFACE, in_signature="a{sv}", out_signature="ay")
     def ReadValue(self, options: dict) -> dbus.Array:
         log.debug("HID Information read")
-        return dbus.Array(HID_INFO, signature="y")
+        return read_slice(HID_INFO, options)
 
 
 class ReportMapCharacteristic(Characteristic):
@@ -286,8 +299,9 @@ class ReportMapCharacteristic(Characteristic):
 
     @dbus.service.method(GATT_CHRC_IFACE, in_signature="a{sv}", out_signature="ay")
     def ReadValue(self, options: dict) -> dbus.Array:
-        log.debug("Report Map read (%d bytes)", len(REPORT_MAP))
-        return dbus.Array(REPORT_MAP, signature="y")
+        log.info("Report Map read (%d bytes) offset=%s mtu=%s", len(REPORT_MAP),
+                 options.get("offset", 0), options.get("mtu", "?"))
+        return read_slice(REPORT_MAP, options)
 
 
 class ControlPointCharacteristic(Characteristic):
@@ -309,7 +323,7 @@ class ProtocolModeCharacteristic(Characteristic):
     @dbus.service.method(GATT_CHRC_IFACE, in_signature="a{sv}", out_signature="ay")
     def ReadValue(self, options: dict) -> dbus.Array:
         log.debug("Protocol Mode read -> 0x%02x", self._mode)
-        return dbus.Array([self._mode], signature="y")
+        return read_slice([self._mode], options)
 
     @dbus.service.method(GATT_CHRC_IFACE, in_signature="aya{sv}")
     def WriteValue(self, value: list, options: dict) -> None:
@@ -329,7 +343,7 @@ class InputReportCharacteristic(Characteristic):
     @dbus.service.method(GATT_CHRC_IFACE, in_signature="a{sv}", out_signature="ay")
     def ReadValue(self, options: dict) -> dbus.Array:
         log.debug("Input Report read by host")
-        return dbus.Array(self._value, signature="y")
+        return read_slice(self._value, options)
 
     @dbus.service.method(GATT_CHRC_IFACE, in_signature="a{sv}", out_signature="hq")
     def AcquireNotify(self, options: dict) -> tuple:
@@ -391,7 +405,7 @@ class FeatureReportCharacteristic(Characteristic):
     @dbus.service.method(GATT_CHRC_IFACE, in_signature="a{sv}", out_signature="ay")
     def ReadValue(self, options: dict) -> dbus.Array:
         log.debug("Feature Report read -> %d", self._value)
-        return dbus.Array([self._value], signature="y")
+        return read_slice([self._value], options)
 
     @dbus.service.method(GATT_CHRC_IFACE, in_signature="aya{sv}")
     def WriteValue(self, value: list, options: dict) -> None:
@@ -410,7 +424,7 @@ class ReportReferenceDescriptor(Descriptor):
 
     @dbus.service.method(GATT_DESC_IFACE, in_signature="a{sv}", out_signature="ay")
     def ReadValue(self, options: dict) -> dbus.Array:
-        return dbus.Array(self._value, signature="y")
+        return read_slice(self._value, options)
 
 
 class BatteryLevelCharacteristic(Characteristic):
@@ -420,7 +434,7 @@ class BatteryLevelCharacteristic(Characteristic):
 
     @dbus.service.method(GATT_CHRC_IFACE, in_signature="a{sv}", out_signature="ay")
     def ReadValue(self, options: dict) -> dbus.Array:
-        return dbus.Array([100], signature="y")
+        return read_slice([100], options)
 
 
 # Device Information Service characteristics
@@ -436,7 +450,7 @@ class PnPIdCharacteristic(Characteristic):
     @dbus.service.method(GATT_CHRC_IFACE, in_signature="a{sv}", out_signature="ay")
     def ReadValue(self, options: dict) -> dbus.Array:
         log.debug("PnP ID read")
-        return dbus.Array(self.PNP_ID, signature="y")
+        return read_slice(self.PNP_ID, options)
 
 
 class ManufacturerNameCharacteristic(Characteristic):
@@ -446,7 +460,7 @@ class ManufacturerNameCharacteristic(Characteristic):
 
     @dbus.service.method(GATT_CHRC_IFACE, in_signature="a{sv}", out_signature="ay")
     def ReadValue(self, options: dict) -> dbus.Array:
-        return dbus.Array(b"BleTouch", signature="y")
+        return read_slice(b"BleTouch", options)
 
 
 # ---------------------------------------------------------------------------
